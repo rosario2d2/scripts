@@ -26,6 +26,8 @@ NAME=$3
 SCALE="640x360"
 FORMAT="mp4"
 LOGLEVEL="info"
+RESIZE=0
+KEEP=0
 
 # Usage dialog
 read -r -d '' USAGE << EOM
@@ -38,6 +40,8 @@ Usage:
 ffmpeg-concat <banner> <video-directory> <output-filename> [options]
 
 Options:
+-r    resize - don't resize the banner, assuming it's maching the same resolution and aspect ratio of the video to concat
+-k    keep - keep the scaled banner in the video dir (default is to delete it)
 -s    scale - set the resolution (default is 640x360)
 -f    format - select the output format (default mp4)
 -l    loglevel - log level for ffmpeg (default info)
@@ -47,27 +51,32 @@ EOM
 
 # Check the arguments
 if [ $# -lt 3 ]; then
-    echo "$USAGE"
+    echo -e "$USAGE"
     exit 1
 fi
 
 # Check the banner is a valid file
 if [ ! -f "$BANNER" ]; then
-    echo "The banner selected doesn't exists or is a directory"
+    echo "The banner - $BANNER - doesn't exists or is a directory"
     exit 1
 fi
 
-# Check video dir exists
+# Check the destination dir exists
 if [ ! -d "$DIRECTORY" ]; then
     echo "Video directory - $DIRECTORY - not found"
     exit 1
 fi
 
 # Getopts options
-while getopts ':hrkns:f:l:' OPTION; do
+shift 3
+while getopts ':hrks:f:l:' OPTION; do
     case "$OPTION" in
         h) echo "$USAGE"
             exit 1
+            ;;
+        r) RESIZE=1
+            ;;
+        k) KEEP=1
             ;;
         s) SCALE=$OPTARG
             ;;
@@ -85,7 +94,6 @@ while getopts ':hrkns:f:l:' OPTION; do
            ;;
     esac
 done
-shift $((OPTIND - 3))
 
 # Colors
 g=$'\e[32m'
@@ -99,16 +107,19 @@ ERRNUM=1
 SKIPPED[0]=$y"Skipped:"$c
 SKIPNUM=1
 
-# Resize the banner to the default or desired resolution
-ffmpeg -i "$BANNER" -loglevel "$LOGLEVEL" -strict -2 -vf scale="$SCALE",setsar=1:1 -c:v libx264 -preset fast -profile:v main -crf 20 "$DIRECTORY"/"$BANNER"-banner-resize."$FORMAT"
-if [ $? -eq 0 ]; then
-    RESBAN="$DIRECTORY"/"$BANNER"-banner-resize."$FORMAT"
+# Resize the banner to the desired resolution or keep it as it is
+if [ $RESIZE -eq 1 ]; then
+    RESBAN=$BANNER
 else
-    # Log banner resize error
-    ERRORS[ERRNUM]="Cannot resize - $BANNER - banner."
-    ((ERRNUM++))
+    ffmpeg -i "$BANNER" -loglevel "$LOGLEVEL" -strict -2 -vf scale="$SCALE",setsar=1:1 -c:v libx264 -preset fast -profile:v main -crf 20 "$DIRECTORY"/"$BANNER"-banner-resize."$FORMAT"
+    if [ $? -eq 0 ]; then
+        RESBAN="$DIRECTORY"/"$BANNER"-banner-resize."$FORMAT"
+    else
+        # Log banner resize error
+        ERRORS[ERRNUM]="Cannot resize - $BANNER - banner."
+        ((ERRNUM++))
+    fi
 fi
-
 
 # For every file in the directory
 for VIDEO in "$DIRECTORY"/*
@@ -125,7 +136,7 @@ do
                 ffmpeg -i "$RESBAN" -i "$VIDEO"-resize."$FORMAT" -i "$RESBAN" -loglevel "$LOGLEVEL" -strict -2 -filter_complex "[0:0] [0:1] [1:0] [1:1] [2:0] concat=n=3:v=1:a=1 [v] [a]" -map "[v]" -map "[a]" "$VIDEO"-"$NAME"."$FORMAT"
                 # If everithing was fine and dandy, clean and move on
                 if [ $? -eq 0 ]; then
-                    printf '%s\n'
+                    echo ""
                     echo "Cleaning - $VIDEO - resize temp file."
                     rm "$VIDEO"-resize."$FORMAT"
                 else
@@ -146,12 +157,19 @@ do
     fi
 done
 
-printf '%s\n'
+# Delete the resized banner unless -k option is selected
+if [ $KEEP -eq 0 ] && [ $RESIZE -eq 0 ]; then
+    rm "$RESBAN"
+fi
 
+echo -e "\n"
+
+# Show skipped files and dirs if any
 if [ "$SKIPNUM" != 1 ]; then
     printf '%s\n' "${SKIPPED[@]}" '%s\n'
 fi
 
+# Show errors if any
 if [ "$ERRNUM" != 1 ]; then
     printf '%s\n' "${ERRORS[@]}" '%s\n'
 fi
