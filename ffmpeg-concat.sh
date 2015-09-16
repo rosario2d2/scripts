@@ -36,7 +36,7 @@ ffmpeg-concat <banner> [options]
 
 Options:
 -s    scale - set the resolution (default is 640x360)
--n    name - complete video filename will be original-filename + name + format (defaiult is complete)
+-n    name - complete video filename will be original-filename + name + format (default is complete)
 -f    format - select the output format (default mp4)
 -l    loglevel - log level for ffmpeg (default info)
 -h    help - show this dialog
